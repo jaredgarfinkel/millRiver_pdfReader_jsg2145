@@ -1,0 +1,157 @@
+---
+title: "20210306-millRiver_pdfReader_jsg2145"
+author: "Jared Garfinkel"
+date: "3/6/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(viridis)
+library(googledrive)
+library(tesseract)
+library(pdftools)
+library(magick)
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+	message = FALSE,
+	fig.width = 12, 
+  fig.height = 14,
+  out.width = "90%"
+)
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+```
+
+```{r}
+eng = tesseract("eng")
+
+# pdf1 = tesseract::ocr("./data/FY 20-21/Oct 20.pdf", engine = eng)
+# cat(pdf1)
+
+results = tesseract::ocr_data("./data/FY 20-21/Oct 20.pdf", engine = eng)
+```
+
+
+```{r}
+# results_wider = results %>% 
+#   select(-bbox) %>% 
+#   pivot_wider(values_from = c("word", "confidence"))
+# results_wider
+
+# AmountDue = NULL
+# for (i in 1:nrow(results)-2) {
+#   AmountDue[[i]] = results %>% 
+#     select(word, confidence) %>% 
+#     case_when( 
+#       if (word[[i]] == "Amount" && word[[i+1]] == "Due") 
+#         confidence[[i]] > 0.9 && confidence[[i+1]] > 0.9 ~ word[[i+2]]
+#       )
+# }
+# 
+# AmountDue = NULL
+# for (i in 1:length(results)) {
+#   AmountDue[[i]] = results %>% 
+#     pull(word) %>% 
+#     .[[i]] %>% 
+#     if_else(str_detect("Amount"), .[[i+2]], NA_character_)
+# }
+# 
+# results %>% 
+#   mutate(id = row_number()) %>% 
+#   filter(word == "Amount" | word == "Due")
+# 
+# AmtDue =NULL
+# for (i in 1:length(results)) {
+#   AmtDue[[i]] = results %>%
+#     if_else((nth(pull(.,word), i) == "Amount"), nth(pull(.,word), i+2), NULL)
+# }
+# 
+# str_detect(pull(results, word), "Amount")
+# 
+# if_else(str_detect(pull(results, word), "Amount"), nth(pull(results, word), str_which(pull(results, word), "Amount")+2), "NO")
+# 
+# nth(pull(results, word), str_which(pull(results, word), "Amount")[[1]]+2)
+# 
+# Amount = NULL
+# for (i in 1:length(str_which(pull(results, word), "Amount"))) {
+#   Amount[[i]] = case_when(str_detect(pull(results, word), "Amount") ~ nth(pull(results, word), str_which(pull(results, word), "Amount")[[i]]+2), 
+#                           str_detect(pull(results, word), "Due") ~ nth(pull(results, word), str_which(pull(results, word), "Amount")[[i]]+1)
+#   )
+# }
+# 
+# results %>% 
+#   pull(word) %>% 
+#   .[[3]] %>% 
+#   str_detect("TAMPA")
+#   
+# nth(pull(results,word), 4)=="ELEGTAIC"
+#   str()
+# results %>% 
+#   summarize(AmountDue = 
+#               case_when(word == "Amount"))
+
+# results %>% 
+#   data.frame() %>% 
+#   pull(word) %>% 
+#   .[5]
+  # case_when(if (word == "Amount") confidence ==  
+```
+
+```{r, include = FALSE, eval = FALSE}
+png = pdftools::pdf_convert("./data/FY 20-21/Oct 20.pdf", dpi = 600)
+text = tesseract::ocr(png)
+
+cat(text)
+```
+
+```{r, include = FALSE, eval = FALSE}
+numbers = tesseract(options = list(tessedit_char_whitelist = "$.0123456789"))
+
+numberpdf = tesseract::ocr("./data/FY 20-21/Oct 20.pdf", engine = numbers)
+
+cat(numberpdf)
+```
+
+```{r}
+tamdR = function(file = results) {
+  Total = NULL
+  for (i in 1:length(str_which(pull(results, word), "Total"))) {
+    Total[[i]] = nth(pull(results, word), str_which(pull(results, word), "Total")[[i]]+3)
+  }
+  
+  Amount = NULL
+  for (i in 1:length(str_which(pull(results, word), "Amount"))) {
+    Amount[[i]] = nth(pull(results, word), str_which(pull(results, word), "Amount")[[i]]+2)
+  }
+  
+  Due = NULL
+  for (i in 1:length(str_which(pull(results, word), "Due"))) {
+    Due[[i]] = nth(pull(results, word), str_which(pull(results, word), "Due")[[i]]+1)
+  }
+
+  totAmtDue = intersect(Total, Amount) %>% 
+    intersect(Due) %>%
+    data.frame()
+  names(totAmtDue) = "Total Amount Due"
+  totAmtDue = totAmtDue %>% 
+    as_tibble() %>% 
+    mutate(`Billing Period` = "2020-10",
+           dollarAmt = str_detect(`Total Amount Due`, "$"))
+  return(totAmtDue)
+}
+```
+
+
+```{r}
+tamdR()
+```
+
+
+

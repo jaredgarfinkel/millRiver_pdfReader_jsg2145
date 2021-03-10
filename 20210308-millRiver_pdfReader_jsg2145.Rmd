@@ -1,0 +1,393 @@
+---
+title: "20210308-millRiver_pdfReader_jsg2145"
+author: "Jared Garfinkel"
+date: "3/8/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(viridis)
+library(tesseract)
+library(pdftools)
+library(magick)
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+	message = FALSE,
+	fig.width = 12, 
+  fig.height = 14,
+  out.width = "90%"
+)
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+```
+
+```{r}
+eng = tesseract("eng")
+
+# pdf1 = tesseract::ocr("./data/FY 20-21/Oct 20.pdf", engine = eng)
+# cat(pdf1)
+
+# month.abb
+
+# path1 = paste0("./data/TECO Canteen/FY 15-16/", month.abb[[1]], " 16.pdf")
+
+path_list=NULL
+for (i in 1:12){
+  path_list[[i]] = paste0("./data/TECO Canteen/FY 15-16/", month.abb[[i]], if_else(i < 10, " 16.pdf", " 15.pdf"))
+}
+
+# path_list[[6]]
+```
+
+
+```{r}
+image_proc = function(path) {
+  
+  results = pdftools::pdf_convert(path, dpi = 550) %>% 
+    magick::image_read() %>%  
+    image_resize("900") %>% 
+    image_deskew() %>%
+    image_convert(colorspace = "gray") %>% 
+    # image_reducenoise() %>%
+    image_trim(fuzz = 40) %>% 
+    tesseract::ocr_data()
+  
+  return(results)
+}
+```
+
+```{r}
+results_df = NULL
+for (i in 1:length(path_list)) {
+  results_df[[i]] = image_proc(path_list[[i]])
+}
+```
+
+
+```{r}
+
+
+# tamd_df = NULL
+# for (i in 1:length(results_df)) {
+#   tamd_df[[i]] = tamdR(results_df[[i]])
+# }
+```
+
+```{r}
+totBillAmtR = function(file = results) {
+  
+  cond = function(df) str_detect(df, "\\$")
+
+  if (length(str_which(pull(file, word), "Total")) > 0 &&
+      length(str_which(pull(file, word), "Bill")) > 0 &&
+      length(str_which(pull(file, word), "Amount")) > 0) {
+    
+    Total = vector(mode = "list", length = length(str_which(pull(file, word), "Total")))
+    for (i in 1:length(str_which(pull(file, word), "Total"))) {
+      k = seq(1:5)
+      for (j in 1:length(k)) {
+        Total[[c(i,j)]] = nth(pull(file, word), str_which(pull(file, word), "Total")[[i]]+k[[j]])
+      }
+    }
+
+    Bill = vector(mode = "list", length = length(str_which(pull(file, word), "Bill")))
+    for (i in 1:length(str_which(pull(file, word), "Bill"))) {
+      k = seq(1:4)
+      for (j in 1:length(k)) {
+        Bill[[c(i,j)]] = nth(pull(file, word), str_which(pull(file, word), "Bill")[[i]]+k[[j]])
+      }
+    }
+
+    Amount = vector(mode = "list", length = length(str_which(pull(file, word), "Amount")))
+    for (i in 1:length(str_which(pull(file, word), "Amount"))) {
+      k = seq(1:3)
+      for (j in 1:length(k)) {
+        Amount[[c(i,j)]] = nth(pull(file, word), str_which(pull(file, word), "Amount")[[i]]+k[[j]])
+      }
+    }
+    
+    totBill = vector(mode = "list", length = length(str_which(pull(file, word), "Total")))
+    for (i in 1:length(Total)) {
+      for (j in 1:length(Bill)) {
+        # for (k in 1:length(Charges)) {
+        totBill[[c(i, j)]] = intersect(as_vector(Total[[i]]), as_vector(Bill[[j]]))
+        }
+        totBill[[i]] = discard(totBill[[i]], is_empty)
+    }
+    totBill = totBill %>% 
+      discard(is_empty) %>% 
+      flatten()
+    
+    if (length(totBill) == 0) {
+      totBillAmt = NA
+    }
+    
+    else {
+
+      totBillAmt = vector(mode = "list", length = length(totBill))
+      for (i in 1:length(totBill)) {
+        for (k in 1:length(Amount)) {
+          totBillAmt[[c(i, k)]] = intersect(as_vector(totBill[[i]]), as_vector(Amount[[k]]))
+        }
+        totBillAmt[[i]] = discard(totBillAmt[[i]], is_empty)
+      }
+        # thisMoCh[[i]] = discard(thisMoCh[[i]], is_empty)
+      totBillAmt = totBillAmt %>% 
+        discard(is_empty) %>% 
+        flatten() %>% 
+        unlist() %>% 
+        keep(cond)
+        # # enframe() %>% 
+        # lmap(~na_if(str_length(.)==0)) %>% 
+        # unlist()
+    }
+  }
+
+  else {
+    totBillAmt = NA
+  }
+
+  if (length(totBillAmt) == 0) {
+    totBillAmt = NA
+  }
+  else {
+    totBillAmt = totBillAmt
+  }
+  return(totBillAmt)
+}
+```
+
+```{r}
+totBillAmt_df = NULL
+for (i in 1:length(results_df)) {
+  totBillAmt_df[[i]] = totBillAmtR(results_df[[i]])
+}
+
+head(totBillAmt_df)
+totBillAmt_df
+```
+
+```{r}
+totDueR = function(file) {
+  
+  cond = function(df) str_detect(df, "\\$")
+
+  if(length(str_which(pull(file, word), "Total")) > 0 &&
+      length(str_which(pull(file, word), "Due")) > 0) {
+  
+    Total2 = vector(mode = "list", length = length(str_which(pull(file, word), "Total")))
+    for (i in 1:length(str_which(pull(file, word), "Total"))) {
+      k = seq(1,4)
+      for (j in 1:length(k)) {
+        Total2[[c(i, j)]] = nth(pull(file, word), str_which(pull(file, word), "Total")[[i]]+k[[j]])
+      }
+    }
+
+    Due = vector(mode = "list", length = length(str_which(pull(file, word), "Due")))
+    for (i in 1:length(str_which(pull(file, word), "Due"))) {
+      l = seq(1,3)
+      for (j in 1:length(l)) {
+        Due[[c(i,j)]] = nth(pull(file, word), str_which(pull(file, word), "Due")[[i]]+l[[j]])
+      }
+    }
+    
+    totDue = vector(mode = "list", length = length(str_which(pull(file, word), "Total")))
+    for (i in 1:length(Total2)) {
+      for (j in 1:length(Due)) {
+        totDue[[c(i, j)]] = intersect(as_vector(Total2[[i]]), as_vector(Due[[j]]))
+      }
+      totDue[[i]] = discard(totDue[[i]],is_empty)
+    }
+
+      totDue = totDue %>% 
+      discard(is_empty) %>% 
+      flatten() %>% 
+      unlist() %>% 
+      keep(cond)
+      # setNames("Total Due")
+  }
+  
+  else {
+    totDue = NA
+    # setNames(totDue, "Total Due")
+  }
+  
+  if (length(totDue) == 0) {
+    totDue = NA
+  }
+  else {
+    totDue = totDue
+  }
+  return(totDue)
+}
+```
+
+```{r}
+totDue_df = NULL
+for (i in 1:length(results_df)) {
+  totDue_df[[i]] = totDueR(results_df[[i]])
+}
+
+head(totDue_df)
+totDue_df
+```
+
+
+
+```{r}
+thisMoChR = function(file) {
+  
+  cond = function(df) str_detect(df, "\\$")
+  
+  if (length(str_which(pull(file, word), "This")) > 0 &&
+      length(str_which(pull(file, word), "Month's"))> 0 &&
+      length(str_which(pull(file, word), "Charges"))> 0) {
+  
+    This = vector(mode = "list", length = length(str_which(pull(file, word), "This")))
+    for (i in 1:length(str_which(pull(file, word), "This"))) {
+      k = seq(1,5)
+      for (j in 1:length(k)) {
+        This[[i]] = nth(pull(file, word), str_which(pull(file, word), "This")[[i]]+k[[j]])
+      }
+    }
+    
+    Month = vector(mode = "list", length = length(str_which(pull(file, word), "This")))
+    for (i in 1:length(str_which(pull(file, word), "Month's"))) {
+      k = seq(1,4)
+      for (j in 1:length(k)) {
+        Month[[i]] = nth(pull(file, word), str_which(pull(file, word), "Month's")[[i]]+k[[j]])
+      }
+    }
+    
+    Charges = vector(mode = "list", length = length(str_which(pull(file, word), "Charges")))
+    for (i in 1:length(str_which(pull(file, word), "Charges"))) {
+      k = seq(1,3)
+      for (j in 1:length(k)) {
+        Charges[[i]] = nth(pull(file, word), str_which(pull(file, word), "Charges")[[i]]+k[[j]])
+      }
+    }
+  
+    thisMo = vector(mode = "list", length = length(str_which(pull(file, word), "This")))
+    for (i in 1:length(This)) {
+      for (j in 1:length(Month)) {
+        # for (k in 1:length(Charges)) {
+        thisMo[[c(i, j)]] = intersect(as_vector(This[[i]]), as_vector(Month[[j]]))
+        }
+        thisMo[[i]] = discard(thisMo[[i]], is_empty)
+    }
+    thisMo = thisMo %>% 
+      discard(is_empty) %>% 
+      flatten()
+    
+    if (length(thisMo)==0) {
+      thisMoCh = NA
+      # names(thisMoCh = "This Month's Charges")
+    }
+    else {
+      thisMoCh = vector(mode = "list", length = length(thisMo))
+      for (i in 1:length(thisMo)) {
+        for (k in 1:length(Charges)) {
+          thisMoCh[[c(i, k)]] = intersect(as_vector(thisMo[[i]]), as_vector(Charges[[k]]))
+        }
+        thisMoCh[[i]] = discard(thisMoCh[[i]], is_empty)
+      }
+        # thisMoCh[[i]] = discard(thisMoCh[[i]], is_empty)
+      thisMoCh = thisMoCh %>% 
+        discard(is_empty) %>% 
+        flatten() %>% 
+        unlist() %>% 
+        keep(cond)
+        # setNames("This Month's Charges")
+    }
+  }
+  
+  else {
+    thisMoCh = NA
+    # names(thisMoCh) = "This Month's Charges"
+  }
+  if (length(thisMoCh)==0) {
+    thisMoCh = NA
+  }
+  else {
+    thisMoCh = thisMoCh
+  }
+
+  return(thisMoCh)
+}
+```
+
+```{r}
+thisMoCh_df = NULL
+for (i in 1:length(results_df)) {
+  thisMoCh_df[[i]] = thisMoChR(results_df[[i]])
+}
+
+head(thisMoCh_df)
+thisMoCh_df
+```
+
+```{r}
+# size_df = seq(from = 725, to = 8, by = 25)
+size_df = seq(from = 880, to = 882, by = 2) #880
+pix_df = seq(from = 260, to = 265, by = 5) #275
+fuzz_df = seq(from = 40, to = 45, by = 5) #40
+# size_df
+length(pix_df)
+length(fuzz_df)
+length(size_df)
+# 
+# results_df[[9]] %>% 
+#   str_detect(word)
+# 
+# str_which(pull(results_df[[9]], word), "[:digit:]")
+# calibR = function(path = path_list[[4]], fuzz = fuzz_df) {
+  images_df = vector(mode = "list", length = length(fuzz_df))
+  for (i in 1:length(fuzz_df)) {
+    for (j in 1:length(pix_df)) {
+      images_df[[c(i, j)]] = pdftools::pdf_convert(path_list[[4]], dpi = pix_df[[j]]) %>% 
+        magick::image_read() %>%  
+        image_resize(880) %>% 
+        image_deskew() %>%
+        image_convert(colorspace = "gray") %>% 
+        # image_reducenoise() %>%
+        image_trim(fuzz = fuzz_df[[i]]) %>% 
+        tesseract::ocr_data()
+    }
+  }
+# }
+# calibR_df = vector(mode = "list", length = length(fuzz_df))
+# for (k in 1:length(fuzz_df)) {
+#   calibR_df[[k]][[c(i, j)]] = calibR(path_list[[4]], fuzz_df[[k]])[[c(i, j)]]
+# }
+
+# calibR_df %>% str()
+
+# images_df[[]]
+# unwrapR = function() {
+  totBillAmt_test = vector(mode = "list", length = length(fuzz_df))
+  for (i in 1:length(fuzz_df)) {
+    for (j in 1:length(pix_df)) {
+      totBillAmt_test[[c(i,j)]] = totBillAmtR(images_df[[c(i,j)]])
+    }
+  }
+# }
+
+# k_df = vector(mode = "list", length = length(fuzz_df))
+# for (k in 1:length(fuzz_df)) {
+#   k_df[[k]] = unwrapR()
+# }
+
+
+# k_df
+pix_df[[7]]
+pix_df[[3]]
+totBillAmt_test
+```
+
